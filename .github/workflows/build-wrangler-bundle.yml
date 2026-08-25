@@ -27,7 +27,7 @@ jobs:
           tar -czf wrangler-4.113.0-linux-x64-node22.tar.gz wrangler-bundle
           sha256sum wrangler-4.113.0-linux-x64-node22.tar.gz > wrangler-4.113.0-linux-x64-node22.sha256
 
-      - name: Upload bundle
+      - name: Upload reproducible qualification bundle
         uses: actions/upload-artifact@v4
         with:
           name: wrangler-4.113.0-linux-x64-node22
