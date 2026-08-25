@@ -1,0 +1,38 @@
+name: Build pinned Wrangler bundle
+
+on:
+  push:
+    paths:
+      - ".github/workflows/build-wrangler-bundle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Build exact Linux x64 bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir wrangler-bundle
+          cd wrangler-bundle
+          npm init -y >/dev/null
+          npm install --save-exact wrangler@4.113.0
+          ./node_modules/.bin/wrangler --version
+          cd ..
+          tar -czf wrangler-4.113.0-linux-x64-node22.tar.gz wrangler-bundle
+          sha256sum wrangler-4.113.0-linux-x64-node22.tar.gz > wrangler-4.113.0-linux-x64-node22.sha256
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: wrangler-4.113.0-linux-x64-node22
+          path: |
+            wrangler-4.113.0-linux-x64-node22.tar.gz
+            wrangler-4.113.0-linux-x64-node22.sha256
+          retention-days: 1
+          if-no-files-found: error
