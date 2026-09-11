@@ -1,0 +1,62 @@
+name: Verify published here.now latent-video endpoints
+
+on:
+  push:
+    branches:
+      - automation/herenow-latent-video-20260911
+    paths:
+      - .github/workflows/verify-herenow-latent-video.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: automation/herenow-latent-video-20260911
+          fetch-depth: 0
+
+      - name: Verify player page and ranged MP4 delivery
+        shell: bash
+        run: |
+          set -euo pipefail
+          site='https://lively-vessel-ssw5.here.now/'
+          video='https://lively-vessel-ssw5.here.now/latent-variable-models-kokoro.mp4'
+          mkdir -p published
+
+          site_code=$(curl --retry 4 --retry-delay 2 -L -sS -o /tmp/site.html -w '%{http_code}' "$site")
+          video_code=$(curl --retry 4 --retry-delay 2 -L -sS --range 0-1023 -D /tmp/video.headers -o /tmp/video.prefix -w '%{http_code}' "$video")
+          content_type=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/{gsub(/\r/,""); print $2; exit}' /tmp/video.headers)
+          content_length=$(awk 'BEGIN{IGNORECASE=1} /^content-length:/{gsub(/\r/,""); print $2; exit}' /tmp/video.headers)
+          accept_ranges=$(awk 'BEGIN{IGNORECASE=1} /^accept-ranges:/{gsub(/\r/,""); print $2; exit}' /tmp/video.headers)
+
+          [[ "$site_code" == '200' ]]
+          [[ "$video_code" == '200' || "$video_code" == '206' ]]
+          [[ "$content_type" == video/mp4* ]]
+          grep -q 'latent-variable-models-kokoro.mp4' /tmp/site.html
+          [[ -s /tmp/video.prefix ]]
+
+          cat > published/herenow-health.txt <<EOF
+          verified_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          site_url=$site
+          site_http_status=$site_code
+          player_references_video=true
+          video_url=$video
+          video_http_status=$video_code
+          video_content_type=$content_type
+          video_content_length=$content_length
+          video_accept_ranges=$accept_ranges
+          ranged_payload_bytes=$(wc -c < /tmp/video.prefix | tr -d ' ')
+          EOF
+
+      - name: Commit health report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add published/herenow-health.txt
+          git commit -m "chore: verify public here.now video endpoints [skip ci]"
+          git push origin HEAD:automation/herenow-latent-video-20260911
