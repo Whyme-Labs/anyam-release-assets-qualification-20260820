@@ -1,0 +1,26 @@
+{
+  "siteUrl": "https://lively-vessel-ssw5.here.now/",
+  "videoUrl": "https://lively-vessel-ssw5.here.now/latent-variable-models-kokoro.mp4",
+  "expiresAt": "2026-09-12T10:13:32.754Z",
+  "anonymous": true,
+  "finalize": {
+    "success": true,
+    "slug": "lively-vessel-ssw5",
+    "siteUrl": "https://lively-vessel-ssw5.here.now/",
+    "previousVersionId": null,
+    "currentVersionId": "01M27ZAJYJJTKW93PKMFEH1H94",
+    "addedToProfile": false,
+    "thumbnailJobId": "6886defe-1d8e-425c-aca2-75a977924ff5",
+    "publishStatus": {
+      "requestAuth": "none",
+      "ownership": "anonymous",
+      "accountId": null,
+      "persistence": "expiring",
+      "expiresAt": "2026-09-12T10:13:32.754Z",
+      "state": "live"
+    }
+  },
+  "durationSeconds": 513.6761666666666,
+  "videoBytes": 17714960,
+  "sha256": "21b6eb14212ae28afe0b8dd4c2a32826bf1801002fb95d67af73484dd5e091ce"
+}

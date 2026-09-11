@@ -1,0 +1,79 @@
+{
+  "title": "Latent variable models",
+  "voice": "Kokoro-82M am_liam",
+  "durationSeconds": 513.6761666666666,
+  "renderFps": 20,
+  "outputFps": 30,
+  "resolution": [
+    1280,
+    720
+  ],
+  "segments": 37,
+  "chapters": [
+    "Foundations",
+    "AE",
+    "VAE",
+    "VQ-VAE",
+    "RQ-VAE",
+    "SAE",
+    "RAE",
+    "Choosing a latent space"
+  ],
+  "verification": {
+    "expectedDuration": 513.6761666666666,
+    "actualDuration": 513.676,
+    "sizeBytes": 17714960,
+    "sha256": "21b6eb14212ae28afe0b8dd4c2a32826bf1801002fb95d67af73484dd5e091ce",
+    "probe": {
+      "programs": [],
+      "streams": [
+        {
+          "index": 0,
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 1280,
+          "height": 720,
+          "r_frame_rate": "30/1"
+        },
+        {
+          "index": 1,
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "24000",
+          "channels": 2,
+          "r_frame_rate": "0/0"
+        }
+      ],
+      "format": {
+        "duration": "513.676000",
+        "size": "17714960"
+      }
+    }
+  },
+  "hereNow": {
+    "siteUrl": "https://lively-vessel-ssw5.here.now/",
+    "videoUrl": "https://lively-vessel-ssw5.here.now/latent-variable-models-kokoro.mp4",
+    "expiresAt": "2026-09-12T10:13:32.754Z",
+    "anonymous": true,
+    "finalize": {
+      "success": true,
+      "slug": "lively-vessel-ssw5",
+      "siteUrl": "https://lively-vessel-ssw5.here.now/",
+      "previousVersionId": null,
+      "currentVersionId": "01M27ZAJYJJTKW93PKMFEH1H94",
+      "addedToProfile": false,
+      "thumbnailJobId": "6886defe-1d8e-425c-aca2-75a977924ff5",
+      "publishStatus": {
+        "requestAuth": "none",
+        "ownership": "anonymous",
+        "accountId": null,
+        "persistence": "expiring",
+        "expiresAt": "2026-09-12T10:13:32.754Z",
+        "state": "live"
+      }
+    },
+    "durationSeconds": 513.6761666666666,
+    "videoBytes": 17714960,
+    "sha256": "21b6eb14212ae28afe0b8dd4c2a32826bf1801002fb95d67af73484dd5e091ce"
+  }
+}
