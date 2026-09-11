@@ -1,0 +1,10 @@
+verified_at_utc=2026-09-11T10:14:53Z
+site_url=https://lively-vessel-ssw5.here.now/
+site_http_status=200
+player_references_video=true
+video_url=https://lively-vessel-ssw5.here.now/latent-variable-models-kokoro.mp4
+video_http_status=206
+video_content_type=video/mp4
+video_content_length=1024
+video_accept_ranges=bytes
+ranged_payload_bytes=1024
