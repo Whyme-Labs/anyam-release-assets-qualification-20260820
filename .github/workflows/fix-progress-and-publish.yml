@@ -1,0 +1,325 @@
+name: Fix latent explainer progress rail and publish
+
+on:
+  push:
+    branches:
+      - automation/kokoro-assets-20260911
+
+permissions:
+  contents: read
+
+jobs:
+  fix-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_SITE: https://lively-vessel-ssw5.here.now
+      DURATION: '513.676'
+    steps:
+      - name: Install media and font tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+
+      - name: Download current published master
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p input site qc
+          curl --fail --location --retry 5 --retry-all-errors \
+            "$SOURCE_SITE/latent-variable-models-kokoro.mp4" \
+            -o input/original.mp4
+          curl --fail --location --retry 5 --retry-all-errors \
+            "$SOURCE_SITE/captions.vtt" \
+            -o site/captions.vtt
+          curl --fail --location --retry 5 --retry-all-errors \
+            "$SOURCE_SITE/poster.jpg" \
+            -o site/poster.jpg
+          curl --fail --location --retry 5 --retry-all-errors \
+            "$SOURCE_SITE/sources.html" \
+            -o site/sources.html
+          test "$(stat -c%s input/original.mp4)" -gt 17000000
+
+      - name: Build timeline-proportional chapter rail
+        shell: bash
+        run: |
+          set -euo pipefail
+          FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+          test -f "$FONT"
+
+          cat > progress-filter.txt <<'FILTER'
+          [0:v]drawbox=x=0:y=687:w=1280:h=33:color=0x171821@1.0:t=fill,drawbox=x=0:y=687:w=1280:h=33:color=0xF3F3F3@0.22:t=fill[base];
+          [1:v]setpts=PTS-STARTPTS[fill];
+          [base][fill]overlay=x='-1280+1280*t/513.676':y=687:eval=frame:eof_action=pass[progress];
+          [progress]
+          drawbox=x=0:y=687:w=1280:h=1:color=white@0.52:t=fill,
+          drawbox=x=0:y=719:w=1280:h=1:color=black@0.55:t=fill,
+          drawbox=x=101:y=687:w=2:h=33:color=white@0.72:t=fill,
+          drawbox=x=267:y=687:w=2:h=33:color=white@0.72:t=fill,
+          drawbox=x=469:y=687:w=2:h=33:color=white@0.72:t=fill,
+          drawbox=x=671:y=687:w=2:h=33:color=white@0.72:t=fill,
+          drawbox=x=839:y=687:w=2:h=33:color=white@0.72:t=fill,
+          drawbox=x=970:y=687:w=2:h=33:color=white@0.72:t=fill,
+          drawbox=x=1153:y=687:w=2:h=33:color=white@0.72:t=fill,
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='FOUND.':x=(101-text_w)/2:y=693:fontsize=15:fontcolor=white@0.58:borderw=1:bordercolor=black@0.45,
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='AE':x=101+(166-text_w)/2:y=692:fontsize=17:fontcolor=white@0.58:borderw=1:bordercolor=black@0.45,
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='VAE':x=267+(202-text_w)/2:y=692:fontsize=17:fontcolor=white@0.58:borderw=1:bordercolor=black@0.45,
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='VQ-VAE':x=469+(202-text_w)/2:y=693:fontsize=15:fontcolor=white@0.58:borderw=1:bordercolor=black@0.45,
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='RQ-VAE':x=671+(168-text_w)/2:y=693:fontsize=15:fontcolor=white@0.58:borderw=1:bordercolor=black@0.45,
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='SAE':x=839+(131-text_w)/2:y=692:fontsize=17:fontcolor=white@0.58:borderw=1:bordercolor=black@0.45,
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='RAE':x=970+(183-text_w)/2:y=692:fontsize=17:fontcolor=white@0.58:borderw=1:bordercolor=black@0.45,
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='CHOOSE':x=1153+(127-text_w)/2:y=693:fontsize=14:fontcolor=white@0.58:borderw=1:bordercolor=black@0.45,
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='FOUND.':x=(101-text_w)/2:y=693:fontsize=15:fontcolor=white:borderw=1:bordercolor=black@0.55:enable='between(t,0,40.671)',
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='AE':x=101+(166-text_w)/2:y=692:fontsize=17:fontcolor=white:borderw=1:bordercolor=black@0.55:enable='between(t,40.671,107.243)',
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='VAE':x=267+(202-text_w)/2:y=692:fontsize=17:fontcolor=white:borderw=1:bordercolor=black@0.55:enable='between(t,107.243,188.029)',
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='VQ-VAE':x=469+(202-text_w)/2:y=693:fontsize=15:fontcolor=white:borderw=1:bordercolor=black@0.55:enable='between(t,188.029,269.297)',
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='RQ-VAE':x=671+(168-text_w)/2:y=693:fontsize=15:fontcolor=white:borderw=1:bordercolor=black@0.55:enable='between(t,269.297,336.584)',
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='SAE':x=839+(131-text_w)/2:y=692:fontsize=17:fontcolor=white:borderw=1:bordercolor=black@0.55:enable='between(t,336.584,389.124)',
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='RAE':x=970+(183-text_w)/2:y=692:fontsize=17:fontcolor=white:borderw=1:bordercolor=black@0.55:enable='between(t,389.124,462.513)',
+          drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='CHOOSE':x=1153+(127-text_w)/2:y=693:fontsize=14:fontcolor=white:borderw=1:bordercolor=black@0.55:enable='between(t,462.513,513.676)'[outv]
+          FILTER
+
+          ffmpeg -hide_banner -y \
+            -i input/original.mp4 \
+            -f lavfi -i "color=c=0xB597FF@0.62:s=1280x33:r=30:d=${DURATION},format=rgba" \
+            -filter_complex_script progress-filter.txt \
+            -map '[outv]' -map 0:a:0 \
+            -c:v libx264 -preset medium -crf 19 -pix_fmt yuv420p -r 30 \
+            -c:a copy -movflags +faststart \
+            -t "$DURATION" \
+            site/latent-variable-models-kokoro.mp4
+
+      - name: Verify media, audio identity, rail geometry, and fill
+        shell: bash
+        run: |
+          set -euo pipefail
+          VIDEO=site/latent-variable-models-kokoro.mp4
+
+          ffmpeg -hide_banner -v error -i "$VIDEO" -f null -
+          ffprobe -v error \
+            -show_entries format=duration,size,bit_rate:stream=index,codec_name,codec_type,width,height,r_frame_rate,sample_rate,channels,duration \
+            -of default=noprint_wrappers=1 "$VIDEO" | tee qc/ffprobe.txt
+
+          ffmpeg -hide_banner -v error -i input/original.mp4 -map 0:a:0 -c copy -f adts qc/original.aac
+          ffmpeg -hide_banner -v error -i "$VIDEO" -map 0:a:0 -c copy -f adts qc/fixed.aac
+          cmp qc/original.aac qc/fixed.aac
+
+          ffmpeg -hide_banner -v error -ss 250 -i "$VIDEO" -frames:v 1 -f rawvideo -pix_fmt rgb24 qc/frame250.rgb
+          for sec in 20 70 150 230 300 360 430 490; do
+            ffmpeg -hide_banner -v error -ss "$sec" -i "$VIDEO" \
+              -vf 'crop=1280:3:0:715' -frames:v 1 -f rawvideo -pix_fmt rgb24 "qc/row_${sec}.rgb"
+          done
+
+          python3 - <<'PY' | tee qc/progress-rail-qc.txt
+          from pathlib import Path
+
+          W, H = 1280, 720
+          duration = 513.676
+          boundaries = [101, 267, 469, 671, 839, 970, 1153]
+
+          raw = Path('qc/frame250.rgb').read_bytes()
+          assert len(raw) == W * H * 3, len(raw)
+
+          print('Expected chapter divider columns:', boundaries)
+          divider_scores = {}
+          for x in boundaries:
+              count = 0
+              for y in range(687, 720):
+                  i = (y * W + x) * 3
+                  r, g, b = raw[i:i+3]
+                  if r > 170 and g > 170 and b > 170:
+                      count += 1
+              divider_scores[x] = count
+              assert count >= 20, (x, count)
+          print('Verified divider brightness counts:', divider_scores)
+
+          samples = [20, 70, 150, 230, 300, 360, 430, 490]
+          print('Continuous fill edge checks:')
+          for sec in samples:
+              row = Path(f'qc/row_{sec}.rgb').read_bytes()
+              assert len(row) == W * 3 * 3, (sec, len(row))
+
+              def chroma_at(x):
+                  vals = []
+                  for yy in range(3):
+                      for xx in range(max(0, x-3), min(W, x+4)):
+                          i = (yy * W + xx) * 3
+                          r, g, b = row[i:i+3]
+                          vals.append(int(b) - int(r))
+                  return sum(vals) / len(vals)
+
+              edge = round(W * sec / duration)
+              left = chroma_at(edge - 12)
+              right = chroma_at(edge + 12)
+              print(f'  t={sec:>3}s expected_x={edge:>4} left(B-R)={left:6.1f} right(B-R)={right:6.1f}')
+              assert left > 12, (sec, edge, left)
+              assert right < 9, (sec, edge, right)
+
+          chapter_times = [0.000, 40.671, 107.243, 188.029, 269.297, 336.584, 389.124, 462.513, 513.676]
+          mapped = [round(W * t / duration) for t in chapter_times]
+          assert mapped == [0, *boundaries, 1280], mapped
+          print('Timeline mapping verified:', list(zip(chapter_times, mapped)))
+          print('PASS: progress rail is continuous and chapter widths follow the actual timeline.')
+          PY
+
+          {
+            echo 'original_audio_sha256='
+            sha256sum qc/original.aac
+            echo 'fixed_audio_sha256='
+            sha256sum qc/fixed.aac
+            echo 'fixed_video_sha256='
+            sha256sum "$VIDEO"
+          } | tee qc/checksums.txt
+
+      - name: Generate player page
+        shell: bash
+        run: |
+          cat > site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <meta name="description" content="AE, VAE, VQ-VAE, RQ-VAE, SAE and RAE explained with a corrected timeline-proportional chapter rail.">
+            <title>Latent variable models, corrected timeline</title>
+            <style>
+              :root{--bg:#07080d;--panel:#11121c;--line:#303247;--ink:#f6f7fc;--muted:#a8aabd;--purple:#743ff6;--purple2:#b597ff}
+              *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,#211442 0,#0a0b12 38%,#06070b 75%);color:var(--ink);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
+              main{width:min(1180px,calc(100% - 32px));margin:0 auto;padding:44px 0 72px}header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:25px}h1{font-size:clamp(38px,7vw,82px);line-height:.95;margin:0;letter-spacing:-.055em}.eyebrow{color:var(--purple2);font-weight:700;letter-spacing:.16em;text-transform:uppercase;margin-bottom:12px}.meta{color:var(--muted);text-align:right;white-space:nowrap}.player{padding:10px;background:linear-gradient(135deg,rgba(116,63,246,.8),rgba(181,151,255,.15) 45%,rgba(255,255,255,.08));border-radius:24px;box-shadow:0 34px 90px rgba(0,0,0,.42)}video{display:block;width:100%;aspect-ratio:16/9;background:#000;border-radius:16px}.actions{display:flex;flex-wrap:wrap;gap:12px;margin:22px 0 32px}.button{display:inline-flex;align-items:center;justify-content:center;padding:12px 18px;border-radius:999px;text-decoration:none;font-weight:750;border:1px solid var(--line);color:var(--ink);background:var(--panel)}.button.primary{background:var(--purple);border-color:var(--purple)}.note{color:var(--muted);max-width:900px}.status{display:inline-block;margin-top:14px;padding:8px 12px;border:1px solid rgba(181,151,255,.45);border-radius:999px;color:var(--purple2);background:rgba(116,63,246,.12);font-weight:700}.chapters{margin-top:42px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.chapter{background:rgba(17,18,28,.84);border:1px solid var(--line);border-radius:14px;padding:14px}.chapter strong{display:block;color:var(--purple2);font-size:17px}.chapter span{color:var(--muted);font-variant-numeric:tabular-nums}footer{margin-top:48px;color:var(--muted);font-size:14px}@media(max-width:780px){header{display:block}.meta{text-align:left;margin-top:16px}.chapters{grid-template-columns:repeat(2,1fr)}main{padding-top:28px}}
+            </style>
+          </head>
+          <body><main>
+            <header><div><div class="eyebrow">Neural representation design</div><h1>Latent variable<br>models</h1></div><div class="meta">8:34 · 720p · Kokoro am_liam<br>Timeline-corrected edition</div></header>
+            <section class="player"><video controls playsinline preload="metadata" poster="poster.jpg"><source src="latent-variable-models-kokoro.mp4" type="video/mp4"><track kind="captions" src="captions.vtt" srclang="en" label="English" default>Your browser cannot play this video.</video></section>
+            <div class="actions"><a class="button primary" href="latent-variable-models-kokoro.mp4" download>Download corrected MP4</a><a class="button" href="captions.vtt" download>Download captions</a><a class="button" href="sources.html">Read sources</a></div>
+            <p class="note">The bottom rail now uses one continuous time fill. Every chapter divider is placed at the actual section transition, so longer chapters occupy more width and the rail reaches each divider exactly when that chapter changes.</p>
+            <div class="status">Progress rail corrected and verified</div>
+            <section class="chapters">
+              <div class="chapter"><strong>Foundations</strong><span>00:00 to 00:40.671</span></div>
+              <div class="chapter"><strong>AE</strong><span>00:40.671 to 01:47.243</span></div>
+              <div class="chapter"><strong>VAE</strong><span>01:47.243 to 03:08.029</span></div>
+              <div class="chapter"><strong>VQ-VAE</strong><span>03:08.029 to 04:29.297</span></div>
+              <div class="chapter"><strong>RQ-VAE</strong><span>04:29.297 to 05:36.584</span></div>
+              <div class="chapter"><strong>SAE</strong><span>05:36.584 to 06:29.124</span></div>
+              <div class="chapter"><strong>RAE</strong><span>06:29.124 to 07:42.513</span></div>
+              <div class="chapter"><strong>Choosing</strong><span>07:42.513 to 08:33.676</span></div>
+            </section>
+            <footer>Original diagrams and motion graphics rendered in code. The encoded picture was revised only inside the bottom progress-rail band. Audio and captions remain unchanged.</footer>
+          </main></body></html>
+          HTML
+
+      - name: Publish corrected site to here.now
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import hashlib, json, mimetypes
+          from pathlib import Path
+
+          root = Path('site')
+          overrides = {
+              '.html': 'text/html; charset=utf-8',
+              '.vtt': 'text/vtt; charset=utf-8',
+              '.mp4': 'video/mp4',
+              '.jpg': 'image/jpeg',
+          }
+          files = []
+          for p in sorted(x for x in root.rglob('*') if x.is_file()):
+              data = p.read_bytes()
+              ctype = overrides.get(p.suffix.lower(), mimetypes.guess_type(p.name)[0] or 'application/octet-stream')
+              files.append({
+                  'path': p.relative_to(root).as_posix(),
+                  'size': len(data),
+                  'contentType': ctype,
+                  'hash': hashlib.sha256(data).hexdigest(),
+              })
+          request = {
+              'files': files,
+              'displayName': 'Latent variable models, corrected timeline',
+              'displayDescription': 'Kokoro-narrated AE, VAE, VQ-VAE, RQ-VAE, SAE and RAE explainer with a timeline-proportional chapter rail.',
+          }
+          Path('publish-request.json').write_text(json.dumps(request), encoding='utf-8')
+          print('Publishing files:', [(f['path'], f['size']) for f in files])
+          PY
+
+          curl --fail --silent --show-error \
+            https://here.now/api/v1/publish \
+            -H 'X-HereNow-Client: chatgpt/github-actions' \
+            -H 'content-type: application/json' \
+            --data-binary @publish-request.json \
+            -o publish-create.json
+
+          python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+
+          create = json.loads(Path('publish-create.json').read_text(encoding='utf-8'))
+          for upload in create['upload']['uploads']:
+              src = Path('site') / upload['path']
+              cmd = ['curl', '--fail', '--silent', '--show-error', '-X', upload.get('method', 'PUT'), upload['url']]
+              for key, value in upload.get('headers', {}).items():
+                  cmd += ['-H', f'{key}: {value}']
+              cmd += ['--data-binary', f'@{src}']
+              subprocess.run(cmd, check=True)
+              print('Uploaded', upload['path'], src.stat().st_size)
+          PY
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          create = json.loads(Path('publish-create.json').read_text(encoding='utf-8'))
+          Path('finalize-request.json').write_text(
+              json.dumps({'versionId': create['upload']['versionId']}),
+              encoding='utf-8',
+          )
+          Path('finalize-url.txt').write_text(create['upload']['finalizeUrl'], encoding='utf-8')
+          PY
+
+          curl --fail --silent --show-error -X POST "$(cat finalize-url.txt)" \
+            -H 'content-type: application/json' \
+            --data-binary @finalize-request.json \
+            -o publish-finalize.json
+
+          python3 - <<'PY' | tee publish-summary.txt
+          import json
+          from pathlib import Path
+          create = json.loads(Path('publish-create.json').read_text(encoding='utf-8'))
+          finalize = json.loads(Path('publish-finalize.json').read_text(encoding='utf-8'))
+          site_url = finalize.get('siteUrl') or create['siteUrl']
+          result = {
+              'siteUrl': site_url,
+              'mp4Url': site_url.rstrip('/') + '/latent-variable-models-kokoro.mp4',
+              'claimUrl': create.get('claimUrl'),
+              'expiresAt': create.get('expiresAt'),
+              'slug': create.get('slug'),
+              'versionId': create['upload']['versionId'],
+              'finalize': finalize,
+          }
+          Path('publish-result.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+          print('SITE_URL=' + result['siteUrl'])
+          print('MP4_URL=' + result['mp4Url'])
+          print('CLAIM_URL=' + str(result['claimUrl']))
+          print('EXPIRES_AT=' + str(result['expiresAt']))
+          PY
+
+          SITE_URL=$(python3 -c "import json; print(json.load(open('publish-result.json'))['siteUrl'])")
+          MP4_URL=$(python3 -c "import json; print(json.load(open('publish-result.json'))['mp4Url'])")
+          curl --fail --location --retry 5 "$SITE_URL" -o qc/published-index.html
+          curl --fail --location --retry 5 -r 0-4095 "$MP4_URL" -o qc/published-range.bin
+          test "$(stat -c%s qc/published-range.bin)" -eq 4096
+
+      - name: Upload corrected master and QC evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: latent-variable-models-progress-fixed
+          path: |
+            site
+            qc
+            progress-filter.txt
+            publish-result.json
+            publish-summary.txt
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 2
