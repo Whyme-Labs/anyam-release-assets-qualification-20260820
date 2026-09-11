@@ -12,6 +12,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: public-herenow-latent-video-20260911
+  cancel-in-progress: false
+
 jobs:
   render-and-publish:
     runs-on: ubuntu-24.04
@@ -53,13 +57,42 @@ jobs:
           print("Kokoro renderer dependencies imported successfully")
           PY
 
+      - name: Remove anonymous ownership token from every output surface
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('automation/render_and_publish_latent_models.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              'd.text((640, 500), "latent-variable-models.here.now", font=font(22, "mono"), fill=GREY, anchor="mm")',
+              'd.text((640, 500), "WATCH / DOWNLOAD / SOURCES", font=font(22, "mono"), fill=GREY, anchor="mm")',
+          )
+          sensitive = (
+              '        "claimUrl": payload.get("claimUrl"),\n'
+              '        "claimToken": payload.get("claimToken"),\n'
+          )
+          if sensitive not in text:
+              raise SystemExit('Expected claim-token block not found; refusing to run publicly')
+          text = text.replace(sensitive, '')
+          path.write_text(text, encoding='utf-8')
+          PY
+          python -m py_compile automation/render_and_publish_latent_models.py
+          if grep -nE 'claimUrl|claimToken' automation/render_and_publish_latent_models.py; then
+            echo "Sensitive here.now claim fields remain in executable source" >&2
+            exit 1
+          fi
+
       - name: Render, verify and publish
         run: |
           mkdir -p output
           set -o pipefail
           python automation/render_and_publish_latent_models.py 2>&1 | tee output/build.log
+          if grep -R -nE 'claimUrl|claimToken|here.now/claim' output; then
+            echo "Sensitive here.now claim data reached an output file" >&2
+            exit 1
+          fi
 
-      - name: Preserve published URLs in branch
+      - name: Preserve public URLs in branch
         if: success()
         run: |
           mkdir -p published
@@ -70,7 +103,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add published
           if ! git diff --cached --quiet; then
-            git commit -m "chore: record here.now latent-model video URL [skip ci]"
+            git commit -m "chore: record public here.now latent-model video URL [skip ci]"
             git push origin HEAD:automation/herenow-latent-video-20260911
           fi
 
