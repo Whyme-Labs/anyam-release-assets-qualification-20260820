@@ -1,8 +1,8 @@
 """Runtime-patched source for the latent-model Manim math pass.
 
-The complete scene implementation is pinned to the immutable commit below.
-This loader applies a narrow compatibility fix for Manim Community 0.19.0,
-whose Text constructor does not accept the legacy letter_spacing argument.
+The complete scene implementation is pinned to an immutable commit. This
+loader applies compatibility and mathematical-correctness fixes before Manim
+executes the scenes.
 """
 from __future__ import annotations
 
@@ -17,5 +17,21 @@ SOURCE_URL = (
 with urlopen(SOURCE_URL, timeout=30) as response:
     source = response.read().decode("utf-8")
 
-source = source.replace(", letter_spacing=0.6", "")
+replacements = {
+    ", letter_spacing=0.6": "",
+    r'r"\beta\,\underbrace{D_{\mathrm{KL}}(q_{\phi}(z\mid x)\|p(z))}_{\text{shape latent space}}"':
+        r'r"\underbrace{D_{\mathrm{KL}}(q_{\phi}(z\mid x)\|p(z))}_{\text{shape latent space}}"',
+    r'r"\min\;\mathcal J"': r'r"\min\;\mathcal J_{\beta}"',
+    'self.play(TransformFromCopy(elbo, loss), run_time=1.6)\n        self.play(Indicate(rec_box, color=PURPLE_LIGHT), Indicate(kl_box, color=ORANGE), run_time=1.2)':
+        'self.play(TransformFromCopy(elbo, loss), run_time=1.6)\n'
+        '        beta_note = label("beta = 1: standard VAE; beta changes the rate-distortion trade-off", 21, GREY).next_to(loss, DOWN, buff=0.12)\n'
+        '        self.play(FadeIn(beta_note, shift=UP * 0.06), run_time=0.6)\n'
+        '        self.play(Indicate(rec_box, color=PURPLE_LIGHT), Indicate(kl_box, color=ORANGE), run_time=1.2)',
+}
+
+for old, new in replacements.items():
+    if old not in source:
+        raise RuntimeError(f"Pinned Manim source changed or patch target missing: {old}")
+    source = source.replace(old, new, 1)
+
 exec(compile(source, SOURCE_URL, "exec"), globals(), globals())
