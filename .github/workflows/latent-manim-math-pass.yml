@@ -1,0 +1,215 @@
+name: Render latent-model Manim math pass
+
+on:
+  push:
+    branches:
+      - automation/latent-manim-math-pass-20260911
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout workflow branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Manim and system dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ffmpeg \
+            libcairo2-dev \
+            libpango1.0-dev \
+            pkg-config \
+            texlive-latex-base \
+            texlive-latex-extra \
+            texlive-fonts-recommended \
+            texlive-science \
+            dvisvgm
+          python -m pip install --upgrade pip
+          python -m pip install 'manim==0.19.0' 'Pillow>=10,<12'
+          python -m py_compile manim_scenes.py compose_math_pass.py
+          manim --version
+          ffmpeg -version | head -1
+
+      - name: Download the corrected Kokoro base video
+        run: |
+          mkdir -p input
+          curl -fL --retry 6 --retry-all-errors --connect-timeout 20 \
+            'https://fancy-entry-jf5e.here.now/latent-variable-models-kokoro.mp4' \
+            -o input/base.mp4
+          test "$(stat -c%s input/base.mp4)" -gt 1000000
+          ffprobe -v error -show_entries format=duration,size -of default=nw=1 input/base.mp4
+
+      - name: Render eight Manim scenes
+        run: |
+          scenes=(
+            AEObjective
+            VAEReparameterization
+            VAEELBO
+            RateDistortion
+            VQQuantization
+            StraightThrough
+            RQResidual
+            SAESparsity
+          )
+          for scene in "${scenes[@]}"; do
+            echo "Rendering ${scene}"
+            manim --media_dir media --format=mp4 --progress_bar none manim_scenes.py "${scene}"
+          done
+          find media -name '*.mp4' -type f -print -exec ffprobe -v error -show_entries format=duration -of default=nw=1 {} \;
+
+      - name: Composite math pass and run QC
+        run: |
+          python compose_math_pass.py \
+            --base input/base.mp4 \
+            --media media \
+            --output output/latent-variable-models-manim-math-pass.mp4 \
+            --qc output/qc \
+            --site output/site
+
+      - name: Build a 32-second formula review reel
+        run: |
+          ffmpeg -y -i output/latent-variable-models-manim-math-pass.mp4 \
+            -filter_complex "\
+              [0:v]trim=start=47.5:duration=4,setpts=PTS-STARTPTS[v0];[0:a]atrim=start=47.5:duration=4,asetpts=PTS-STARTPTS[a0];\
+              [0:v]trim=start=116.0:duration=4,setpts=PTS-STARTPTS[v1];[0:a]atrim=start=116.0:duration=4,asetpts=PTS-STARTPTS[a1];\
+              [0:v]trim=start=140.0:duration=4,setpts=PTS-STARTPTS[v2];[0:a]atrim=start=140.0:duration=4,asetpts=PTS-STARTPTS[a2];\
+              [0:v]trim=start=163.0:duration=4,setpts=PTS-STARTPTS[v3];[0:a]atrim=start=163.0:duration=4,asetpts=PTS-STARTPTS[a3];\
+              [0:v]trim=start=197.0:duration=4,setpts=PTS-STARTPTS[v4];[0:a]atrim=start=197.0:duration=4,asetpts=PTS-STARTPTS[a4];\
+              [0:v]trim=start=226.0:duration=4,setpts=PTS-STARTPTS[v5];[0:a]atrim=start=226.0:duration=4,asetpts=PTS-STARTPTS[a5];\
+              [0:v]trim=start=282.0:duration=4,setpts=PTS-STARTPTS[v6];[0:a]atrim=start=282.0:duration=4,asetpts=PTS-STARTPTS[a6];\
+              [0:v]trim=start=350.0:duration=4,setpts=PTS-STARTPTS[v7];[0:a]atrim=start=350.0:duration=4,asetpts=PTS-STARTPTS[a7];\
+              [v0][a0][v1][a1][v2][a2][v3][a3][v4][a4][v5][a5][v6][a6][v7][a7]concat=n=8:v=1:a=1[v][a]" \
+            -map '[v]' -map '[a]' -c:v libx264 -crf 19 -preset medium -pix_fmt yuv420p \
+            -c:a aac -b:a 160k -movflags +faststart \
+            output/site/manim-formula-review-reel.mp4
+
+      - name: Publish to here.now
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd output/site
+
+          python - <<'PY'
+          import hashlib, json, mimetypes
+          from pathlib import Path
+          files=[]
+          for p in sorted(Path('.').rglob('*')):
+              if not p.is_file():
+                  continue
+              data=p.read_bytes()
+              ctype=mimetypes.guess_type(p.name)[0] or 'application/octet-stream'
+              if p.suffix == '.md':
+                  ctype='text/markdown; charset=utf-8'
+              if p.suffix == '.html':
+                  ctype='text/html; charset=utf-8'
+              files.append({
+                  'path': p.as_posix(),
+                  'size': len(data),
+                  'contentType': ctype,
+                  'hash': hashlib.sha256(data).hexdigest(),
+              })
+          payload={
+              'files': files,
+              'displayName': 'Latent variable models: Manim math pass',
+              'displayDescription': 'Corrected Kokoro explainer with eight structured Manim formula scenes.',
+              'viewer': {
+                  'title': 'Latent variable models: Manim math pass',
+                  'description': 'AE, VAE, VQ-VAE, RQ-VAE, SAE and RAE with staged mathematical explanations.'
+              }
+          }
+          Path('publish-request.json').write_text(json.dumps(payload), encoding='utf-8')
+          PY
+
+          curl -fsS 'https://here.now/api/v1/publish' \
+            -H 'X-HereNow-Client: github-actions/manim-math-pass' \
+            -H 'content-type: application/json' \
+            --data-binary @publish-request.json > publish-create.json
+
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          data=json.loads(Path('publish-create.json').read_text())
+          upload=data.get('upload', {})
+          items=upload.get('uploads', data.get('uploads', []))
+          for item in items:
+              path=item['path']
+              url=item.get('url') or item.get('uploadUrl')
+              if not url:
+                  raise RuntimeError(f'Missing upload URL for {path}: {item}')
+              ctype=item.get('contentType')
+              if not ctype:
+                  import mimetypes
+                  ctype=mimetypes.guess_type(path)[0] or 'application/octet-stream'
+              subprocess.run([
+                  'curl','-fsS','-X','PUT',url,
+                  '-H',f'Content-Type: {ctype}',
+                  '--data-binary',f'@{path}'
+              ], check=True)
+          finalize=data.get('finalizeUrl') or upload.get('finalizeUrl')
+          version=data.get('versionId') or upload.get('versionId')
+          claim=data.get('claimToken') or upload.get('claimToken')
+          if not finalize or not version:
+              raise RuntimeError(f'Incomplete publish response: {data}')
+          body={'versionId': version}
+          if claim:
+              body['claimToken']=claim
+          Path('publish-finalize-body.json').write_text(json.dumps(body), encoding='utf-8')
+          Path('publish-meta.json').write_text(json.dumps({
+              'siteUrl': data.get('siteUrl') or data.get('url'),
+              'finalizeUrl': finalize,
+              'versionId': version,
+              'claimToken': claim,
+          }, indent=2), encoding='utf-8')
+          PY
+
+          FINALIZE_URL=$(jq -r '.finalizeUrl' publish-meta.json)
+          curl -fsS -X POST "$FINALIZE_URL" \
+            -H 'content-type: application/json' \
+            --data-binary @publish-finalize-body.json > publish-final.json
+
+          SITE_URL=$(jq -r '.siteUrl' publish-meta.json)
+          echo "$SITE_URL" | tee SITE_URL.txt
+          echo "site_url=$SITE_URL" >> "$GITHUB_OUTPUT"
+          curl -fsSI "$SITE_URL" | head
+          curl -fsSI "${SITE_URL%/}/latent-variable-models-manim-math-pass.mp4" | head
+
+      - name: Upload corrected video and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: latent-variable-models-manim-math-pass
+          path: |
+            output/latent-variable-models-manim-math-pass.mp4
+            output/qc/MANIM_MATH_PASS_QC.md
+            output/qc/manim_math_contact_sheet.jpg
+            output/site/manim-formula-review-reel.mp4
+            output/site/index.html
+            output/site/SITE_URL.txt
+            output/site/publish-meta.json
+            output/site/publish-final.json
+            manim_scenes.py
+            compose_math_pass.py
+          retention-days: 2
+          compression-level: 0
+
+      - name: Publish summary
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Manim math pass complete
+
+          Site: ${{ steps.publish.outputs.site_url }}
+
+          The final video retains the Kokoro audio stream and the corrected time-proportional progress rail. Eight formula-heavy intervals were replaced in the content region only.
+          EOF
