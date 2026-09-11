@@ -1,0 +1,107 @@
+name: Recover Manim publication metadata
+
+on:
+  push:
+    branches:
+      - automation/read-manim-publish-meta-20260911
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout metadata branch
+        uses: actions/checkout@v4
+        with:
+          ref: automation/read-manim-publish-meta-20260911
+
+      - name: Download successful Manim build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: latent-variable-models-manim-math-pass
+          path: artifact
+          repository: Whyme-Labs/anyam-release-assets-qualification-20260820
+          run-id: '34610087456'
+          github-token: ${{ github.token }}
+
+      - name: Record public URLs and QC evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          SITE_FILE=$(find artifact -type f -name SITE_URL.txt -print -quit)
+          QC_FILE=$(find artifact -type f -name MANIM_MATH_PASS_QC.md -print -quit)
+          PROBE_FILE=$(find artifact -type f -name publish-meta.json -print -quit)
+          test -n "$SITE_FILE"
+          test -n "$QC_FILE"
+
+          SITE_URL=$(tr -d '\r\n' < "$SITE_FILE")
+          SITE_ROOT=${SITE_URL%/}
+          mkdir -p published
+          cp "$QC_FILE" published/MANIM_MATH_PASS_QC.md
+          if [ -n "$PROBE_FILE" ]; then
+            cp "$PROBE_FILE" published/here-now-publish-meta.json
+          fi
+
+          python - "$SITE_URL" <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          site = sys.argv[1].rstrip('/') + '/'
+          data = {
+              "site_url": site,
+              "video_url": site + "latent-variable-models-manim-math-pass.mp4",
+              "review_reel_url": site + "manim-formula-review-reel.mp4",
+              "contact_sheet_url": site + "manim-math-contact-sheet.jpg",
+              "qc_report_url": site + "MANIM_MATH_PASS_QC.md",
+              "source_run_id": 34610087456,
+              "source_artifact_id": 10268177285,
+              "source_artifact_sha256": "dbd1a1d27f44650ecba876d675f45ce0225632259bdd2bb26789628cd18d96b7",
+              "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
+          }
+          Path("published/manim-public.json").write_text(
+              json.dumps(data, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+
+          cat published/manim-public.json
+          cat published/MANIM_MATH_PASS_QC.md
+
+      - name: Verify published player and range-enabled MP4
+        shell: bash
+        run: |
+          set -euo pipefail
+          SITE_URL=$(jq -r .site_url published/manim-public.json)
+          VIDEO_URL=$(jq -r .video_url published/manim-public.json)
+          curl -fsSIL "$SITE_URL" | tee published/player-headers.txt
+          curl -fsSIL -H 'Range: bytes=0-1023' "$VIDEO_URL" | tee published/video-range-headers.txt
+          grep -Eiq '^HTTP/.* 2(00|06)' published/player-headers.txt
+          grep -Eiq '^HTTP/.* 2(00|06)' published/video-range-headers.txt
+          grep -Eiq '^content-type: video/mp4' published/video-range-headers.txt
+
+      - name: Commit recovered metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add published
+          if git diff --cached --quiet; then
+            echo 'No metadata changes to commit.'
+          else
+            git commit -m 'docs: record Manim publication metadata [skip ci]'
+            git push origin HEAD:automation/read-manim-publish-meta-20260911
+          fi
+
+      - name: Upload compact publication evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: manim-publication-evidence
+          path: published/**
+          retention-days: 2
