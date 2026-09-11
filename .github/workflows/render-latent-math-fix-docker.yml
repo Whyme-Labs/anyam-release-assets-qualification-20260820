@@ -1,0 +1,81 @@
+name: Render latent explainer Manim math fix Docker
+
+on:
+  push:
+    branches:
+      - automation/kokoro-assets-20260911
+    paths:
+      - 'mathfix/**'
+      - '.github/workflows/render-latent-math-fix-docker.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: automation/kokoro-assets-20260911
+
+      - name: Check host media tools
+        run: |
+          command -v ffmpeg || sudo apt-get update && sudo apt-get install -y ffmpeg
+          command -v montage || sudo apt-get update && sudo apt-get install -y imagemagick
+          ffmpeg -version | head -1
+
+      - name: Download latest corrected Kokoro cut
+        run: |
+          curl --fail --location --retry 4 --retry-delay 2 \
+            'https://fancy-entry-jf5e.here.now/latent-variable-models-kokoro.mp4' \
+            --output base.mp4
+          ffprobe -v error -show_entries format=duration,size -of json base.mp4
+
+      - name: Pull pinned Manim image
+        run: |
+          docker pull manimcommunity/manim:v0.21.0
+
+      - name: Render transparent Manim scenes
+        run: |
+          mkdir -p mathfix/rendered media
+          for scene in \
+            AEObjective \
+            VAEReparameterization \
+            ELBO \
+            RateDistortion \
+            VQNearest \
+            StraightThrough \
+            RQResidual \
+            SAESparsity
+          do
+            echo "Rendering $scene"
+            docker run --rm \
+              --user="$(id -u):$(id -g)" \
+              -v "$PWD:/manim" \
+              manimcommunity/manim:v0.21.0 \
+              manim -qm -t --disable_caching --media_dir media mathfix/latent_math_scenes.py "$scene"
+            src="$(find media -type f -name "${scene}.mov" -print -quit)"
+            test -n "$src"
+            cp "$src" "mathfix/rendered/${scene}.mov"
+          done
+          ls -lh mathfix/rendered
+
+      - name: Composite, QC and publish to here.now
+        run: |
+          python3 mathfix/patch_and_publish.py --publish
+
+      - name: Upload corrected master and QC
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: latent-models-manim-mathfix-docker
+          path: |
+            mathfix/out/latent-variable-models-kokoro-mathfix.mp4
+            mathfix/out/math_formula_contact_sheet.jpg
+            mathfix/out/qc.json
+            mathfix/out/publish_result.json
+            mathfix/latent_math_scenes.py
+          if-no-files-found: warn
+          retention-days: 2
