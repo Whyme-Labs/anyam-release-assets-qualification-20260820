@@ -1,0 +1,65 @@
+name: Analyze latent explainer progress rail
+
+on:
+  push:
+    branches:
+      - automation/kokoro-assets-20260911
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg tesseract-ocr
+
+      - name: Inspect rail labels and separators
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://lively-vessel-ssw5.here.now/latent-variable-models-kokoro.mp4'
+          curl --fail --location --retry 4 "$URL" -o video.mp4
+          mkdir -p bars
+          for sec in 10 50 120 210 290 350 410 480; do
+            ffmpeg -hide_banner -loglevel error -ss "$sec" -i video.mp4 \
+              -vf 'crop=1280:40:0:680,scale=3840:120:flags=neighbor,eq=contrast=1.6:brightness=0.04' \
+              -frames:v 1 "bars/${sec}.png"
+            echo "--- OCR ${sec}s ---"
+            tesseract "bars/${sec}.png" stdout --psm 6 2>/dev/null || true
+          done
+
+          ffmpeg -hide_banner -loglevel error -ss 250 -i video.mp4 -frames:v 1 -f rawvideo -pix_fmt rgb24 frame.rgb
+          python3 - <<'PY'
+          from pathlib import Path
+          W,H=1280,720
+          b=Path('frame.rgb').read_bytes()
+          assert len(b)==W*H*3, len(b)
+          # Separator lines are nearly white and vertically persistent in y=687..719.
+          scores=[]
+          for x in range(W):
+              bright=0
+              for y in range(687,720):
+                  i=(y*W+x)*3
+                  r,g,bl=b[i:i+3]
+                  if r>185 and g>185 and bl>185 and max(r,g,bl)-min(r,g,bl)<35:
+                      bright+=1
+              scores.append(bright)
+          groups=[]
+          start=None
+          for x,s in enumerate(scores+[0]):
+              if s>=18 and start is None:
+                  start=x
+              elif s<18 and start is not None:
+                  if x-start<=8:
+                      groups.append((start,x-1,max(scores[start:x])))
+                  start=None
+          print('--- VERTICAL WHITE LINE GROUPS ---')
+          print(groups)
+          print('--- TOP COLUMN SCORES ---')
+          print(sorted(enumerate(scores), key=lambda p:p[1], reverse=True)[:30])
+          PY
