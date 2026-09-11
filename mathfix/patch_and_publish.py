@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import subprocess
 import sys
 import urllib.request
@@ -58,25 +57,72 @@ def patch_video() -> None:
         if not p.exists():
             raise FileNotFoundError(p)
 
+    base_d = ffprobe_duration(BASE)
     cmd = ["ffmpeg", "-y", "-i", str(BASE)]
     for scene, _, _ in SCENES:
         cmd += ["-i", str(RENDERED / f"{scene}.mov")]
 
-    filters: list[str] = []
-    prev = "[0:v]"
-    for idx, (scene, start, end) in enumerate(SCENES, start=1):
-        ov = f"[ov{idx}]"
-        out = f"[v{idx}]"
-        filters.append(f"[{idx}:v]setpts=PTS-STARTPTS+{start:.3f}/TB{ov}")
+    # Absolute PTS on transparent qtrle clips is fragile in FFmpeg's overlay
+    # filter. Instead, split the base into local-time segments, overlay each
+    # Manim clip at t=0, then concatenate the visual segments. The original
+    # Kokoro AAC stream is mapped directly from input 0 and never re-encoded.
+    segment_count = len(SCENES) * 2 + 1
+    base_labels = [f"base{i}" for i in range(segment_count)]
+    filters: list[str] = [
+        f"[0:v]split={segment_count}" + "".join(f"[{label}]" for label in base_labels)
+    ]
+    concat_labels: list[str] = []
+    prev = 0.0
+    split_idx = 0
+
+    for input_idx, (scene, start, end) in enumerate(SCENES, start=1):
+        if start <= prev or end <= start:
+            raise RuntimeError(f"invalid scene range {scene}: {start}..{end}")
+
+        pre = f"pre{input_idx}"
         filters.append(
-            f"{prev}{ov}overlay=0:0:eof_action=pass:shortest=0:format=auto:"
-            f"enable='between(t,{start:.3f},{end:.3f})'{out}"
+            f"[{base_labels[split_idx]}]trim=start={prev:.3f}:end={start:.3f},"
+            f"setpts=PTS-STARTPTS,format=yuv420p[{pre}]"
         )
-        prev = out
+        concat_labels.append(f"[{pre}]")
+        split_idx += 1
+
+        duration = end - start
+        under = f"under{input_idx}"
+        over = f"over{input_idx}"
+        math = f"math{input_idx}"
+        filters.append(
+            f"[{base_labels[split_idx]}]trim=start={start:.3f}:end={end:.3f},"
+            f"setpts=PTS-STARTPTS,format=yuv420p[{under}]"
+        )
+        # Pad the last transparent frame so the overlay is guaranteed to be
+        # longer than the exact base interval. shortest=1 then makes the base
+        # interval the timing authority and prevents accumulated drift.
+        filters.append(
+            f"[{input_idx}:v]trim=start=0:duration={duration:.3f},setpts=PTS-STARTPTS,"
+            f"tpad=stop_mode=clone:stop_duration=1,format=argb[{over}]"
+        )
+        filters.append(
+            f"[{under}][{over}]overlay=0:0:eof_action=pass:shortest=1:format=auto,"
+            f"format=yuv420p[{math}]"
+        )
+        concat_labels.append(f"[{math}]")
+        split_idx += 1
+        prev = end
+
+    tail = "tail"
+    filters.append(
+        f"[{base_labels[split_idx]}]trim=start={prev:.3f}:end={base_d:.6f},"
+        f"setpts=PTS-STARTPTS,format=yuv420p[{tail}]"
+    )
+    concat_labels.append(f"[{tail}]")
+    filters.append(
+        "".join(concat_labels) + f"concat=n={len(concat_labels)}:v=1:a=0[vout]"
+    )
 
     cmd += [
         "-filter_complex", ";".join(filters),
-        "-map", prev,
+        "-map", "[vout]",
         "-map", "0:a:0?",
         "-map_metadata", "0",
         "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
@@ -86,7 +132,6 @@ def patch_video() -> None:
     ]
     sh(cmd)
 
-    base_d = ffprobe_duration(BASE)
     final_d = ffprobe_duration(FINAL)
     if abs(base_d - final_d) > 0.08:
         raise RuntimeError(f"duration mismatch base={base_d:.3f}, final={final_d:.3f}")
@@ -102,7 +147,9 @@ def patch_video() -> None:
     qc = {
         "base_duration_seconds": base_d,
         "final_duration_seconds": final_d,
+        "duration_delta_seconds": round(final_d - base_d, 6),
         "audio_sha256": final_ah,
+        "audio_bit_identical_to_base": base_ah == final_ah,
         "output_sha256": hashlib.sha256(FINAL.read_bytes()).hexdigest(),
         "formula_overlays": [
             {"scene": s, "start": a, "end": b, "duration": round(b-a, 3)} for s, a, b in SCENES
