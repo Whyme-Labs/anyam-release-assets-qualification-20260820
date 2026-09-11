@@ -1,0 +1,116 @@
+name: Diagnose latent-model Manim math pass
+
+on:
+  push:
+    branches:
+      - automation/latent-manim-math-pass-20260911
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout workflow branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install render dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ffmpeg libcairo2-dev libpango1.0-dev pkg-config \
+            texlive-latex-base texlive-latex-extra texlive-fonts-recommended \
+            texlive-science dvisvgm
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m py_compile manim_scenes.py compose_math_pass.py
+
+      - name: Download corrected Kokoro base
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p input output/qc output/site logs
+          curl -fL --retry 6 --retry-all-errors --connect-timeout 20 \
+            'https://fancy-entry-jf5e.here.now/latent-variable-models-kokoro.mp4' \
+            -o input/base.mp4
+          test "$(stat -c%s input/base.mp4)" -gt 1000000
+          ffprobe -v error -show_entries format=duration,size -of json input/base.mp4 | tee logs/base-probe.json
+
+      - name: Render Manim scenes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          scenes=(
+            AEObjective
+            VAEReparameterization
+            VAEELBO
+            RateDistortion
+            VQQuantization
+            StraightThrough
+            RQResidual
+            SAESparsity
+          )
+          for scene in "${scenes[@]}"; do
+            manim --media_dir media --format=mp4 --progress_bar none manim_scenes.py "$scene" 2>&1 | tee "logs/manim-${scene}.log"
+          done
+          find media -name '*.mp4' -type f -print0 | while IFS= read -r -d '' f; do
+            printf '%s\n' "$f"
+            ffprobe -v error -show_entries stream=width,height,r_frame_rate -show_entries format=duration,size -of json "$f"
+          done | tee logs/manim-probes.txt
+
+      - name: Composite and run QC
+        id: composite
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -u compose_math_pass.py \
+            --base input/base.mp4 \
+            --media media \
+            --output output/latent-variable-models-manim-math-pass.mp4 \
+            --qc output/qc \
+            --site output/site \
+            2>&1 | tee logs/compose.log
+          rc=${PIPESTATUS[0]}
+          echo "$rc" > logs/compose-exit-code.txt
+          if [ -f output/latent-variable-models-manim-math-pass.mp4 ]; then
+            ffprobe -v error -show_streams -show_format -of json \
+              output/latent-variable-models-manim-math-pass.mp4 \
+              > logs/composite-probe.json || true
+            ffmpeg -v error -i output/latent-variable-models-manim-math-pass.mp4 \
+              -f null - 2> logs/composite-decode-errors.txt || true
+          fi
+          exit "$rc"
+
+      - name: Upload all diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: latent-manim-diagnostics
+          path: |
+            logs/**
+            output/**
+            media/**
+            manim_scenes.py
+            compose_math_pass.py
+            requirements.txt
+          if-no-files-found: warn
+          retention-days: 2
+          compression-level: 0
+
+      - name: Fail when compositor failed
+        if: steps.composite.outcome == 'failure'
+        shell: bash
+        run: |
+          echo 'The compositor or QC failed. Diagnostics were uploaded.' >&2
+          exit 1
