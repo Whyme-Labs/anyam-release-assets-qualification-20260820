@@ -13,25 +13,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Inspect page and media
+      - name: Install media tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - name: Inspect page, captions, and media
         shell: bash
         run: |
           set -euo pipefail
           BASE='https://lively-vessel-ssw5.here.now'
           curl --fail --location --retry 4 "$BASE/" -o index.html
-          echo '--- INDEX HTML ---'
-          cat index.html
-          echo
-          echo '--- REFERENCED PATHS ---'
-          grep -Eo '(src|href)="[^"]+"' index.html || true
-          echo
-          echo '--- VIDEO HEADERS ---'
-          curl --fail --location --retry 4 -I "$BASE/latent-variable-models-kokoro.mp4" || true
+          curl --fail --location --retry 4 "$BASE/captions.vtt" -o captions.vtt
           curl --fail --location --retry 4 "$BASE/latent-variable-models-kokoro.mp4" -o video.mp4
-          echo '--- FFPROBE ---'
-          ffprobe -v error -show_format -show_streams video.mp4
-          echo '--- ROOT LINKS CHECK ---'
-          for p in captions.vtt captions.srt latent-variable-models-kokoro.srt latent_models_explainer_kokoro.srt; do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/$p" || true)
-            echo "$p $code"
-          done
+
+          echo '--- CAPTIONS VTT ---'
+          cat captions.vtt
+          echo
+          echo '--- FFPROBE COMPACT ---'
+          ffprobe -v error -show_entries format=duration,size,bit_rate:stream=index,codec_name,codec_type,width,height,r_frame_rate,sample_rate,channels,duration -of default=noprint_wrappers=1 video.mp4
+          echo
+          echo '--- SHA256 ---'
+          sha256sum video.mp4 captions.vtt index.html
