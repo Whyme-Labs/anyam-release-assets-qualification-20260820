@@ -1,0 +1,81 @@
+name: Rebuild and publish latent-model explainer
+
+on:
+  push:
+    branches:
+      - automation/herenow-latent-video-20260911
+    paths:
+      - automation/render_and_publish_latent_models.py
+      - .github/workflows/rebuild-publish-latent-models.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  render-and-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      TOKENIZERS_PARALLELISM: "false"
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: automation/herenow-latent-video-20260911
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng fonts-dejavu-core libsndfile1
+
+      - name: Install Kokoro and renderer dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "kokoro==0.9.4" \
+            "soundfile>=0.12" \
+            "Pillow>=10" \
+            "numpy<2.4" \
+            "requests>=2.31"
+          python -m pip install \
+            "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+
+      - name: Render, verify and publish
+        run: |
+          mkdir -p output
+          set -o pipefail
+          python automation/render_and_publish_latent_models.py 2>&1 | tee output/build.log
+
+      - name: Preserve published URLs in branch
+        if: success()
+        run: |
+          mkdir -p published
+          cp output/herenow-result.json published/herenow-result.json
+          cp output/metadata.json published/metadata.json
+          cp output/verification.json published/verification.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add published
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: record here.now latent-model video URL [skip ci]"
+            git push origin HEAD:automation/herenow-latent-video-20260911
+          fi
+
+      - name: Upload recoverable build artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: latent-variable-models-kokoro-herenow
+          path: output/
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
